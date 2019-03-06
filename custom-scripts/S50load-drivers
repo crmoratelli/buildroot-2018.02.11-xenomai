@@ -1,0 +1,4 @@
+#!/bin/sh
+
+modprobe xeno-gpio-bcm2835
+modprobe xeno_gpiopwm
