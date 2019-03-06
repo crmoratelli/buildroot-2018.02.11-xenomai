@@ -3,8 +3,9 @@ Buildroot with Linux Kernel 4.9.51 patched with I-Pipe and Xenomai v3.1-devel li
 
 To build:
 
-make raspberrypi3_xenomai_defconfig
-make
+	make raspberrypi3_xenomai_defconfig
+	
+	make
 
 To test GPIO and PWM using RTDM drivers:
 
@@ -15,4 +16,4 @@ To test GPIO and PWM using RTDM drivers:
 /usr/xenomai/bin/xen-gpio gpio <pin number>
 
     Example: /usr/xenomai/bin/xen-gpio gpio 988
-    
+
