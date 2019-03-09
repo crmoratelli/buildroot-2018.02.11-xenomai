@@ -2,3 +2,4 @@
 
 modprobe xeno-gpio-bcm2835
 modprobe xeno_gpiopwm
+modprobe xeno_spi_bcm2835
