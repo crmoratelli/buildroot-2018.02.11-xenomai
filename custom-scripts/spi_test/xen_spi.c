@@ -13,8 +13,10 @@
 static const char *device = "/dev/rtdm/spi32766/slave32766.0";
 
 #define TRANSFER_SIZE 3
-#define CLOCK_RES 1e-9 //Clock resolution is 1 ns by default
-#define LOOP_PERIOD 33333333 //Expressed in ticks
+#define CLOCK_RES 1e-9 /* Clock resolution is 1ns */
+#define DIV_TO_MS  1000000.0
+#define DIV_TO_US  1000.0
+#define LOOP_PERIOD 100000000 /* Expressed in ticks - 100 ms */
 
 struct rtdm_spi_config config = {1000000, 0, 8};
 struct rtdm_spi_iobufs iobufs;
@@ -38,43 +40,6 @@ void loop_task_proc(void *arg){
 	rt_task_inquire(curtask, &curtaskinfo);
 	int ctr = 0;
 
-	//Print the info
-	printf("Starting task %s with period of 10 ms ....\n", curtaskinfo.name);
-
-	//Make the task periodic with a specified loop period
-	rt_task_set_periodic(NULL, TM_NOW, LOOP_PERIOD);
-
-	tstart = rt_timer_read();
-
-	//Start the task loop
-	while(1){
-		now = rt_timer_read();
-		printf("Loop count: %d, Loop time: %.5f ms, jitter %.5f us\n", ctr, (now - tstart)/1000000.0, ((long int)now - (long int)tlast - LOOP_PERIOD)/1000.0);
-		tlast = now;		
-		ctr++;
-
-
-		o_area[0] = 0x1;
-		o_area[1] = CHANNEL(ctr%8);
-		o_area[2] = 0;
-
-		iret =ioctl(fd, SPI_RTIOC_TRANSFER);
-		if(iret < 0){
-			perror("ioctl");
-		}
-
-		/* */
-
-		rt_task_wait_period(NULL);
-	}
-}
-
-
-int main(int argc, char *argv[])
-{
-	int ret = 0;
-	char str[20];
-
 	fd = open(device, O_RDWR);
 	if (fd < 0){
 		perror("open():");
@@ -83,8 +48,8 @@ int main(int argc, char *argv[])
 	/*
 	 * spi mode
 	 */
-	ret = ioctl(fd, SPI_RTIOC_SET_CONFIG, &config);
-	if (ret == -1){
+	iret = ioctl(fd, SPI_RTIOC_SET_CONFIG, &config);
+	if (iret == -1){
 		perror("ioctl():");
 	}
 
@@ -94,14 +59,14 @@ int main(int argc, char *argv[])
 
 	iobufs.io_len = TRANSFER_SIZE;
 
-	ret = ioctl(fd, SPI_RTIOC_SET_IOBUFS, &iobufs);
-	if(ret < 0){
+	iret = ioctl(fd, SPI_RTIOC_SET_IOBUFS, &iobufs);
+	if(iret < 0){
 		perror("ioctl()");
 	}
 
 	p = mmap(NULL, iobufs.io_len, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 	if (p == MAP_FAILED){
-		return -EINVAL;
+		return;
 	}
 
 	i_area = p + iobufs.i_offset;
@@ -111,8 +76,44 @@ int main(int argc, char *argv[])
 		     iobufs.i_offset, iobufs.i_offset + TRANSFER_SIZE - 1,
 		     iobufs.o_offset, iobufs.o_offset + TRANSFER_SIZE - 1,
 		     iobufs.io_len);
-	
-	printf("Starting loop...\n");
+
+	//Print the info
+	printf("Starting task %s with period of %.2f ms ....\n", curtaskinfo.name, LOOP_PERIOD/1000000);
+
+	//Make the task periodic with a specified loop period
+	rt_task_set_periodic(NULL, TM_NOW, LOOP_PERIOD);
+
+	o_area[0] = 0x1;
+	o_area[1] = 0x80;
+	o_area[2] = 0;
+
+	tstart = rt_timer_read();
+
+	//Start the task loop
+	while(1){
+		now = rt_timer_read();
+		ctr++;
+
+		iret =ioctl(fd, SPI_RTIOC_TRANSFER);
+		if(iret < 0){
+			perror("ioctl");
+		}
+
+		value = (i_area[1] & 0x7) << 8 | i_area[2];
+		printf("value: %d\n", value);
+
+		printf("Loop count: %d, run time: %.2f ms, loop time: %.2f us jitter %.5f us\n", ctr, (now - tstart)/DIV_TO_MS, (rt_timer_read()-now)/DIV_TO_US, ((long int)now - (long int)tlast - LOOP_PERIOD)/DIV_TO_US);
+		tlast = now;		
+
+
+		rt_task_wait_period(NULL);
+	}
+}
+
+
+int main(int argc, char *argv[]){
+	char str[20];
+	int ret;
 
 	//Create the real time task
 	sprintf(str, "spi_loop");
