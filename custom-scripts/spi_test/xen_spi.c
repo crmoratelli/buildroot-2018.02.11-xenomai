@@ -12,13 +12,13 @@
 
 static const char *device = "/dev/rtdm/spi32766/slave32766.0";
 
-#define TRANSFER_SIZE 3
+#define TRANSFER_SIZE 6
 #define CLOCK_RES 1e-9 /* Clock resolution is 1ns */
 #define DIV_TO_MS  1000000.0
 #define DIV_TO_US  1000.0
 #define LOOP_PERIOD 100000000 /* Expressed in ticks - 100 ms */
 
-struct rtdm_spi_config config = {1000000, 0, 8};
+struct rtdm_spi_config config = {1500000, 0, 8};
 struct rtdm_spi_iobufs iobufs;
 void *p;
 static unsigned char *i_area, *o_area;
