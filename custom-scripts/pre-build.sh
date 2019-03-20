@@ -22,6 +22,10 @@ popd
 make -C $BASE_DIR/../custom-scripts/gpio_test/
 cp  $BASE_DIR/../custom-scripts/gpio_test/xen-gpio $BASE_DIR/target/usr/xenomai/bin
 
+make -C $BASE_DIR/../custom-scripts/spi_test
+cp  $BASE_DIR/../custom-scripts/spi_test/xen_spi $BASE_DIR/target/usr/xenomai/bin
+
+
 #FIXME: This entry will repeat at each recompilation.
 echo -e >> $BASE_DIR/target/etc/profile
 echo -e "export LD_LIBRARY_PATH=/usr/xenomai/lib" >> $BASE_DIR/target/etc/profile
