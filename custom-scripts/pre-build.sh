@@ -6,6 +6,9 @@ chmod +x $BASE_DIR/target/etc/init.d/S41network-config
 cp $BASE_DIR/../custom-scripts/S50load-drivers $BASE_DIR/target/etc/init.d
 chmod +x $BASE_DIR/target/etc/init.d/S50load-drivers
 
+cp $BASE_DIR/../custom-scripts/S52autotune $BASE_DIR/target/etc/init.d
+chmod +x $BASE_DIR/target/etc/init.d/S52autotune
+
 tar -zxvf $BASE_DIR/../custom-scripts/packages/xenomai-3.tar.gz -C $BASE_DIR/build
 pushd $BASE_DIR/build/xenomai-3
 scripts/bootstrap

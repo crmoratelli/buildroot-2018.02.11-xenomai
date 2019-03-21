@@ -1,0 +1,4 @@
+#!/bin/sh
+
+/usr/xenomai/sbin/autotune --period 10000
+
