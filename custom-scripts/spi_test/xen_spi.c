@@ -11,6 +11,8 @@
 #include <math.h>
 #include <semaphore.h>
 
+#define RUN_STATISTICS
+
 #define DEVICE_SPI "/dev/rtdm/spi32766/slave32766.0"
 #define PIN_NAME_PWM "/dev/rtdm/gpiopwm0"
 
@@ -21,7 +23,6 @@
 #define LOOP_PERIOD 100000 /* Expressed in ticks - 100 us */
 
 struct rtdm_spi_iobufs iobufs;
-volatile int finish = 1;
 
 /* Power model data */
 const double coef_nom[4] = {0.2039,   -0.4210,    0.2811,   -0.0608};
@@ -38,6 +39,8 @@ double u_n3 = 0; //Sinal de controle de tres amostras atrasada.
 double e_n1 = 0; //Sinal de erro de uma amostra atrasada.
 double e_n2 = 0; //Sinal de erro de duas amostras atrasada.
 double e_n3 = 0; //Sinal de erro de tres amostras atrasada.
+
+#ifdef RUN_STATISTICS
 
 /* Statistics */
 struct time_data{
@@ -56,9 +59,11 @@ double time_cases[4] = {9999999, -1, 9999999, -1};
 #define SLOWER_LOOP 1
 #define BETTER_JITTER 2
 #define WORST_JITTER 3
-
 sem_t sem;
+#else
+volatile int finish = 1;
 
+#endif /* RUN_STATISTICS */
 
 double map(double x, double in_min, double in_max, double out_min, double out_max){
 	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
@@ -168,7 +173,7 @@ int configure_spi_device(unsigned char **i_area, unsigned char **o_area){
 	return fd;
 }
 
-
+#ifdef RUN_STATISTICS
 /* Update statistic tables */
 void update_statistics(int ctr, double passed_time, double loop_time, double jitter, int value, int pwm){
 	loop_info[ctr%INFO_SIZE].ctr = ctr;
@@ -196,7 +201,7 @@ void update_statistics(int ctr, double passed_time, double loop_time, double jit
 		}
 	}
 }
-
+#endif
 
 
 /* Real-time Task */
@@ -231,7 +236,11 @@ void loop_task_proc(void *arg){
 	/* Initial time. */
 	tstart = rt_timer_read();
 
+#ifdef RUN_STATISTICS
 	while(ctr<INFO_SIZE){
+#else
+	while(finish){
+#endif		
 		now = rt_timer_read();
 		ctr++;
 
@@ -253,9 +262,11 @@ void loop_task_proc(void *arg){
 			old_pwm = pwm;
 		}
 
+#ifdef	RUN_STATISTICS
 		/* keep statistics */
 		update_statistics(ctr, (now - tstart)/DIV_TO_MS, (rt_timer_read()-now)/DIV_TO_US, ((long int)now - (long int)tlast - LOOP_PERIOD), value, pwm);
-		
+#endif
+
 		tlast = now;		
 
 		rt_task_wait_period(NULL);
@@ -264,10 +275,13 @@ void loop_task_proc(void *arg){
 	close(fdspi);
 	close(fdpwm);
 
+#ifdef RUN_STATISTICS
 	sem_post(&sem);
+#endif
 }
 
 
+#ifdef RUN_STATISTICS
 /*Print statistics */
 void print_results(){
 	int i;
@@ -280,8 +294,8 @@ void print_results(){
 	for(i=0; i<INFO_SIZE; i++){
 		printf("%d\t\t%.2f\t%.2f\t\t%.5f\t\t%d\t\t%d\n", loop_info[i].ctr, loop_info[i].passed_time, loop_info[i].loop_time, loop_info[i].jitter, loop_info[i].value, loop_info[i].pwm);
 	}
-
 }
+#endif
 
 
 int main(int argc, char *argv[]){
@@ -289,12 +303,14 @@ int main(int argc, char *argv[]){
 	char str[20];
 	int ret;
 
+#ifdef RUN_STATISTICS
 	memset(loop_info, 0, sizeof(loop_info));
 
 	printf("loop_info size: %dKB\n", sizeof(loop_info)/1024);
 
 	/* Mutex for wait finish */
 	sem_init(&sem, 0 , 0);
+#endif 	
 
 	/* Create the real time task */
 	sprintf(str, "spi_loop");
@@ -307,14 +323,21 @@ int main(int argc, char *argv[]){
 	/* Since task starts in suspended mode, start task */
 	rt_task_start(&loop_task, &loop_task_proc, 0);
 
+#ifdef RUN_STATISTICS
 	printf("Wait... ");
 
 	/* Wait main RT thread to finish*/
 	sem_wait(&sem);
+#else
+	printf("Press ENTER to finish.");
+	getchar();
+#endif	
 
 	printf("finished...\n");
 
+#ifdef RUN_STATISTICS
 	print_results();
+#endif 
 
 	return ret;
 }
