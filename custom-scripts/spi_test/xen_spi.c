@@ -3,11 +3,13 @@
 #include <unistd.h>
 #include <alchemy/task.h>
 #include <alchemy/timer.h>
+#include <alchemy/mutex.h>
 #include <rtdm/gpio.h>
 #include <sys/mman.h>
 #include <rtdm/gpiopwm.h>
 #include <rtdm/uapi/spi.h>
 #include <math.h>
+#include <semaphore.h>
 
 #define DEVICE_SPI "/dev/rtdm/spi32766/slave32766.0"
 #define PIN_NAME_PWM "/dev/rtdm/gpiopwm0"
@@ -38,13 +40,24 @@ double e_n2 = 0; //Sinal de erro de duas amostras atrasada.
 double e_n3 = 0; //Sinal de erro de tres amostras atrasada.
 
 /* Statistics */
-#define TABLE_SIZE 100
-double loop_info[100][6];
+struct time_data{
+	unsigned int  ctr;
+	double passed_time;
+	double loop_time;
+	double jitter;
+	int value;
+	int pwm;
+};
+
+#define INFO_SIZE 1000000
+struct time_data loop_info[INFO_SIZE];
 double time_cases[4] = {9999999, -1, 9999999, -1};
 #define FASTEST_LOOP 0
 #define SLOWER_LOOP 1
 #define BETTER_JITTER 2
 #define WORST_JITTER 3
+
+sem_t sem;
 
 
 double map(double x, double in_min, double in_max, double out_min, double out_max){
@@ -158,28 +171,28 @@ int configure_spi_device(unsigned char **i_area, unsigned char **o_area){
 
 /* Update statistic tables */
 void update_statistics(int ctr, double passed_time, double loop_time, double jitter, int value, int pwm){
-	loop_info[ctr%TABLE_SIZE][0] = ctr;
-	loop_info[ctr%TABLE_SIZE][1] = passed_time;
-	loop_info[ctr%TABLE_SIZE][2] = loop_time;
-	loop_info[ctr%TABLE_SIZE][3] = jitter;
-	loop_info[ctr%TABLE_SIZE][4] = (double)value;
-	loop_info[ctr%TABLE_SIZE][5] = (double)pwm;
+	loop_info[ctr%INFO_SIZE].ctr = ctr;
+	loop_info[ctr%INFO_SIZE].passed_time = passed_time;
+	loop_info[ctr%INFO_SIZE].loop_time = loop_time;
+	loop_info[ctr%INFO_SIZE].jitter = jitter;
+	loop_info[ctr%INFO_SIZE].value = value;
+	loop_info[ctr%INFO_SIZE].pwm = pwm;
 
 	if (ctr > 50){
-		if(time_cases[FASTEST_LOOP] > loop_info[ctr%TABLE_SIZE][2]){
-			time_cases[FASTEST_LOOP] = loop_info[ctr%TABLE_SIZE][2];
+		if(time_cases[FASTEST_LOOP] > loop_info[ctr%INFO_SIZE].loop_time){
+			time_cases[FASTEST_LOOP] = loop_info[ctr%INFO_SIZE].loop_time;
 		}
 
-		if(time_cases[SLOWER_LOOP] < loop_info[ctr%TABLE_SIZE][2]){
-			time_cases[SLOWER_LOOP] = loop_info[ctr%TABLE_SIZE][2];
+		if(time_cases[SLOWER_LOOP] < loop_info[ctr%INFO_SIZE].loop_time){
+			time_cases[SLOWER_LOOP] = loop_info[ctr%INFO_SIZE].loop_time;
 		}
 
-		if(time_cases[BETTER_JITTER] > loop_info[ctr%TABLE_SIZE][3]){
-			time_cases[BETTER_JITTER] = loop_info[ctr%TABLE_SIZE][3];
+		if(time_cases[BETTER_JITTER] > loop_info[ctr%INFO_SIZE].jitter){
+			time_cases[BETTER_JITTER] = loop_info[ctr%INFO_SIZE].jitter;
 		}
 
-		if(time_cases[WORST_JITTER] < loop_info[ctr%TABLE_SIZE][3]){
-			time_cases[WORST_JITTER] = loop_info[ctr%TABLE_SIZE][3];
+		if(time_cases[WORST_JITTER] < loop_info[ctr%INFO_SIZE].jitter){
+			time_cases[WORST_JITTER] = loop_info[ctr%INFO_SIZE].jitter;
 		}
 	}
 }
@@ -218,7 +231,7 @@ void loop_task_proc(void *arg){
 	/* Initial time. */
 	tstart = rt_timer_read();
 
-	while(finish){
+	while(ctr<INFO_SIZE){
 		now = rt_timer_read();
 		ctr++;
 
@@ -241,7 +254,7 @@ void loop_task_proc(void *arg){
 		}
 
 		/* keep statistics */
-		update_statistics(ctr, (now - tstart)/DIV_TO_MS, (rt_timer_read()-now)/DIV_TO_US, ((long int)now - (long int)tlast - LOOP_PERIOD)/DIV_TO_US, value, pwm);
+		update_statistics(ctr, (now - tstart)/DIV_TO_MS, (rt_timer_read()-now)/DIV_TO_US, ((long int)now - (long int)tlast - LOOP_PERIOD), value, pwm);
 		
 		tlast = now;		
 
@@ -250,6 +263,8 @@ void loop_task_proc(void *arg){
 
 	close(fdspi);
 	close(fdpwm);
+
+	sem_post(&sem);
 }
 
 
@@ -262,8 +277,8 @@ void print_results(){
 
 	printf("Loop count\trun time(ms)\tloop time(us)\tjitter(us)\tanalog\t\tpwm\n");
 
-	for(i=0; i<TABLE_SIZE; i++){
-		printf("%d\t\t%.2f\t%.2f\t\t%.2f\t\t%d\t\t%d\n", (int)loop_info[i][0], loop_info[i][1], loop_info[i][2], loop_info[i][3], (int)loop_info[i][4], (int)loop_info[i][5]);
+	for(i=0; i<INFO_SIZE; i++){
+		printf("%d\t\t%.2f\t%.2f\t\t%.5f\t\t%d\t\t%d\n", loop_info[i].ctr, loop_info[i].passed_time, loop_info[i].loop_time, loop_info[i].jitter, loop_info[i].value, loop_info[i].pwm);
 	}
 
 }
@@ -276,6 +291,11 @@ int main(int argc, char *argv[]){
 
 	memset(loop_info, 0, sizeof(loop_info));
 
+	printf("loop_info size: %dKB\n", sizeof(loop_info)/1024);
+
+	/* Mutex for wait finish */
+	sem_init(&sem, 0 , 0);
+
 	/* Create the real time task */
 	sprintf(str, "spi_loop");
 	ret = rt_task_create(&loop_task, str, 1024, 99, 0);
@@ -287,12 +307,10 @@ int main(int argc, char *argv[]){
 	/* Since task starts in suspended mode, start task */
 	rt_task_start(&loop_task, &loop_task_proc, 0);
 
-	printf("press key to finish...\n");
+	printf("Wait... ");
 
-	/* Wait for ENTER */
-	getchar();
-
-	finish = 0;
+	/* Wait main RT thread to finish*/
+	sem_wait(&sem);
 
 	printf("finished...\n");
 
