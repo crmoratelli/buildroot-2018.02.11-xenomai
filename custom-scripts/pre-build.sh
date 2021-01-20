@@ -28,6 +28,8 @@ cp  $BASE_DIR/../custom-scripts/gpio_test/xen-gpio $BASE_DIR/target/usr/xenomai/
 make -C $BASE_DIR/../custom-scripts/spi_test
 cp  $BASE_DIR/../custom-scripts/spi_test/xen_spi $BASE_DIR/target/usr/xenomai/bin
 
+make -C $BASE_DIR/../custom-scripts/hello_task
+cp  $BASE_DIR/../custom-scripts/hello_task/hello_task $BASE_DIR/target/usr/xenomai/bin
 
 #FIXME: This entry will repeat at each recompilation.
 echo -e >> $BASE_DIR/target/etc/profile
